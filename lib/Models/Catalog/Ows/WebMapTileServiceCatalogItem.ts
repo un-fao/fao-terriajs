@@ -536,7 +536,7 @@ class WebMapTileServiceCatalogItem extends MappableMixin(
       return;
     }
 
-    const imageryProvider = new WebMapTileServiceImageryProvider({
+    const imageryOptions: WebMapTileServiceImageryProvider.ConstructorOptions = {
       url: proxyCatalogItemUrl(this, baseUrl),
       layer: layerIdentifier,
       style: this.style,
@@ -549,10 +549,11 @@ class WebMapTileServiceCatalogItem extends MappableMixin(
         this.tileHeight ?? this.minimumLevel ?? tileMatrixSet.tileHeight,
       tilingScheme: new WebMercatorTilingScheme(),
       format,
-      credit: this.attribution
-      // TODO: implement picking for WebMapTileServiceImageryProvider
-      //enablePickFeatures: this.allowFeaturePicking
-    });
+      credit: this.attribution,
+      enablePickFeatures: this.enablePickFeatures
+    }
+        
+    const imageryProvider = new WebMapTileServiceImageryProvider(imageryOptions) ;
     return imageryProvider;
   }
 

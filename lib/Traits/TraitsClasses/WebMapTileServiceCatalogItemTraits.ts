@@ -124,4 +124,11 @@ export default class WebMapServiceCatalogItemTraits extends mixTraits(
       "Additional parameters to pass to the MapServer when requesting images."
   })
   parameters?: JsonObject;
+
+  @primitiveTrait({
+    type: "boolean",
+    name: "Enable Pick Features",
+    description: "Indicates whether feature picking is enabled."
+  })
+  enablePickFeatures: boolean = true;
 }
