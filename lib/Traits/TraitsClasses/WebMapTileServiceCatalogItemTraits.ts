@@ -14,6 +14,8 @@ import LegendOwnerTraits from "./LegendOwnerTraits";
 import LegendTraits from "./LegendTraits";
 import MappableTraits from "./MappableTraits";
 import UrlTraits from "./UrlTraits";
+import primitiveArrayTrait from "../Decorators/primitiveArrayTrait";
+import DiffableTraits from "./DiffableTraits";
 
 export class WebMapTileServiceAvailableStyleTraits extends ModelTraits {
   @primitiveTrait({
@@ -80,7 +82,8 @@ export class WebMapTileServiceAvailableLayerStylesTraits extends ModelTraits {
     opacity: 1
   }
 })
-export default class WebMapServiceCatalogItemTraits extends mixTraits(
+export default class WebMapTileServiceCatalogItemTraits extends mixTraits(
+  DiffableTraits,
   LayerOrderingTraits,
   GetCapabilitiesTraits,
   ImageryProviderTraits,
@@ -131,4 +134,21 @@ export default class WebMapServiceCatalogItemTraits extends mixTraits(
     description: "Indicates whether feature picking is enabled."
   })
   enablePickFeatures: boolean = true;
+  
+  @primitiveTrait({
+    type: "number",
+    name: "Maximum Refresh Intervals",
+    description:
+      "The maximum number of discrete times that can be created by a single " +
+      "date range, when specified in the format time/time/periodicity. E.g. " +
+      "`2015-04-27T16:15:00/2015-04-27T18:45:00/PT15M` has 11 times."
+  })
+  maxRefreshIntervals: number = 10000;
+  
+  @anyTrait({
+    name: "Dimensions",
+    description:
+      "Dimension parameters used to request a particular layer along one or more dimensional axes (including elevation, excluding time). Do not include `_dim` prefx for parameter keys. These dimensions will be applied to the layer."
+  })
+  dimensions?: { [key: string]: string };
 }

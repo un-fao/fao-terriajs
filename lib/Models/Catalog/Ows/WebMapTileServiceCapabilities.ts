@@ -13,6 +13,18 @@ import {
   ServiceProvider
 } from "./OwsInterfaces";
 
+export type CapabilitiesDimension = {
+  readonly Identifier: string;
+  readonly name: string;
+  readonly units: string;
+  readonly unitSymbol?: string;
+  readonly default?: string;
+  readonly text?: string;
+  readonly multipleValues?: boolean;
+  readonly nearestValue?: boolean;
+  readonly current?: boolean;
+};
+
 export interface WmtsLayer {
   // according to start WMTS only have title
   readonly Title: string;
@@ -24,6 +36,9 @@ export interface WmtsLayer {
   readonly infoFormat?: string | ReadonlyArray<string>;
   readonly TileMatrixSetLink?: TileMatrixSetLink | TileMatrixSetLink[];
   readonly ResourceURL?: ResourceUrl | ResourceUrl[];
+  readonly Dimension?:
+    | CapabilitiesDimension
+    | ReadonlyArray<CapabilitiesDimension>;
 }
 
 /* For some reason LegendUrls are formatted differently from WMS - this makes me very upset >:(

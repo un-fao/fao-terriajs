@@ -6,10 +6,11 @@ import WebMapTileServiceImageryProvider from "terriajs-cesium/Source/Scene/WebMa
 import URI from "urijs";
 import containsAny from "../../../Core/containsAny";
 import isDefined from "../../../Core/isDefined";
+import CommonStrata from "../../Definition/CommonStrata";
 import TerriaError from "../../../Core/TerriaError";
 import CatalogMemberMixin from "../../../ModelMixins/CatalogMemberMixin";
 import GetCapabilitiesMixin from "../../../ModelMixins/GetCapabilitiesMixin";
-import MappableMixin, { MapItem } from "../../../ModelMixins/MappableMixin";
+import MappableMixin, { MapItem, ImageryParts } from "../../../ModelMixins/MappableMixin";
 import UrlMixin from "../../../ModelMixins/UrlMixin";
 import { InfoSectionTraits } from "../../../Traits/TraitsClasses/CatalogMemberTraits";
 import LegendTraits from "../../../Traits/TraitsClasses/LegendTraits";
@@ -33,7 +34,11 @@ import WebMapTileServiceCapabilities, {
   WmtsCapabilitiesLegend,
   WmtsLayer
 } from "./WebMapTileServiceCapabilities";
-
+import createDiscreteTimesFromIsoSegments from "../../../Core/createDiscreteTimes";
+import JulianDate from "terriajs-cesium/Source/Core/JulianDate";
+import createTransformerAllowUndefined from "../../../Core/createTransformerAllowUndefined";
+import MinMaxLevelMixin from "../../../ModelMixins/MinMaxLevelMixin";
+import DiffableMixin from "../../../ModelMixins/DiffableMixin";
 interface UsableTileMatrixSets {
   identifiers: string[];
   tileWidth: number;
@@ -411,15 +416,170 @@ class GetCapabilitiesStratum extends LoadableStratum(
       layerAvailableStyles?.[0]?.identifier
     );
   }
+
+  /**
+   * Extract discrete times from WMTS capabilities
+   */
+  @computed
+  get discreteTimes(): { time: string; tag: string | undefined }[] | undefined {
+    try {
+      const result: { time: string; tag: string | undefined }[] = [];
+      
+      // Find the layer in capabilities
+      const layer = this.capabilitiesLayer;
+      if (!layer) return undefined;
+      // In WMTS, dimensions are in Dimension elements
+      const dimensions = layer.Dimension || [];
+
+      const timeDimension = Array.isArray(dimensions) 
+        ? dimensions.find(
+            (dimension) => dimension.Identifier.toLowerCase() === "time"
+          )
+        : dimensions && typeof dimensions === "object" && "Identifier" in dimensions && 
+          dimensions.Identifier.toLowerCase() === "time" ? dimensions : undefined;
+
+      if (timeDimension && timeDimension.Value) {
+        if (Array.isArray(timeDimension.Value)) {
+          // Multiple values as array
+          for (const timeValue of timeDimension.Value) {
+            result.push({
+              time: timeValue.toString(),
+              tag: timeValue.toString()
+            });
+          }
+        } else if (typeof timeDimension.Value === "string") {
+          // Single value or comma-separated list
+          const timeValues = timeDimension.Value.split(",");
+          for (const timeValue of timeValues) {
+            const trimmedValue = timeValue.trim();
+            if (trimmedValue.includes("/")) {
+              // Handle time periods (start/end/interval)
+              this._processTimePeriod(result, trimmedValue);
+            } else {
+              result.push({
+                time: trimmedValue,
+                tag: trimmedValue
+              });
+            }
+          }
+        }
+      } else if (typeof timeDimension._value === "string") {
+        // Sometimes values are in _value property
+        const timeValues = timeDimension._value.split(",");
+        for (const timeValue of timeValues) {
+          const trimmedValue = timeValue.trim();
+          if (trimmedValue.includes("/")) {
+            // Handle time periods (start/end/interval)
+            this._processTimePeriod(result, trimmedValue);
+          } else {
+            result.push({
+              time: trimmedValue,
+              tag: trimmedValue
+            });
+          }
+        }
+      }
+      
+      return result.length > 0 ? result : undefined;
+    } catch (e) {
+      console.error("Error extracting WMTS time dimensions:", e);
+      return undefined;
+    }
+  }
+
+  /**
+   * Process time period values (start/end/interval format)
+   */
+  private _processTimePeriod(
+    result: { time: string; tag: string | undefined }[],
+    period: string
+  ): void {
+    const parts = period.split("/");
+    if (parts.length < 2) return;
+    
+    // Handle simple start/end case
+    if (parts.length === 2) {
+      result.push({
+        time: period,
+        tag: period
+      });
+      return;
+    }
+    
+    // Handle start/end/interval case
+    // Use createDiscreteTimesFromIsoSegments, which already exists in TerriaJS
+    try {
+      createDiscreteTimesFromIsoSegments(
+        result,
+        parts[0],
+        parts[1],
+        parts[2],
+        this.catalogItem.maxRefreshIntervals
+      );
+    } catch (e) {
+      console.warn(`Error processing time period: ${period}`, e);
+    }
+  }
+
+  /**
+   * Get the default time from capabilities
+   */
+  @computed
+  get currentTime(): string | undefined {
+    try {
+      const layer = this.capabilitiesLayer;
+      if (!layer) return undefined;
+      
+      // Find time dimension
+      const dimensions = layer.Dimension || [];
+
+      const timeDimension = Array.isArray(dimensions) 
+        ? dimensions.find(
+            (dimension) => dimension.Identifier.toLowerCase() === "time"
+          )
+        : undefined;
+
+      
+      if (!timeDimension) return undefined;
+      
+      // Get default value if specified
+      if (timeDimension.Default) {
+        return timeDimension.Default.toString();
+      }
+      
+      // If no default, but we have discreteTimes, use the most recent time
+      const times = this.discreteTimes;
+      if (times && times.length > 0) {
+        return times[times.length - 1].time;
+      }
+      
+      return undefined;
+    } catch (e) {
+      console.error("Error determining default time for WMTS:", e);
+      return undefined;
+    }
+  }
+
+  /**
+   * Specify initial time source
+   */
+  @computed
+  get initialTimeSource() {
+    return "now";
+  }
 }
 
-class WebMapTileServiceCatalogItem extends MappableMixin(
-  GetCapabilitiesMixin(
-    UrlMixin(
-      CatalogMemberMixin(CreateModel(WebMapTileServiceCatalogItemTraits))
+class WebMapTileServiceCatalogItem extends
+  DiffableMixin(
+    GetCapabilitiesMixin(
+      UrlMixin(
+        MappableMixin(
+          CatalogMemberMixin(CreateModel(WebMapTileServiceCatalogItemTraits))
+        )
+      )
     )
   )
-) {
+ {
   /**
    * The collection of strings that indicate an Abstract property should be ignored.  If these strings occur anywhere
    * in the Abstract, the Abstract will not be used.  This makes it easy to filter out placeholder data like
@@ -475,86 +635,125 @@ class WebMapTileServiceCatalogItem extends MappableMixin(
     return "1d";
   }
 
-  @computed
-  get imageryProvider() {
-    const stratum = this.strata.get(
-      GetCapabilitiesMixin.getCapabilitiesStratumName
-    ) as GetCapabilitiesStratum;
+  private _createImageryProvider = createTransformerAllowUndefined(
+    (time?: string): WebMapTileServiceImageryProvider | undefined => {
+      // Basic error checking similar to current implementation
+      if (!isDefined(this.layer) || !isDefined(this.url) || this.isLoadingMetadata || !isDefined(this.style)) {
+        return undefined;
+      }
+  
+      const stratum = this.strata.get(
+        GetCapabilitiesMixin.getCapabilitiesStratumName
+      ) as GetCapabilitiesStratum;
+      
+      const layer = stratum?.capabilitiesLayer;
+      const layerIdentifier = layer?.Identifier;
+      if (!isDefined(layer) || !isDefined(layerIdentifier)) {
+        return undefined;
+      }
 
-    if (
-      !isDefined(this.layer) ||
-      !isDefined(this.url) ||
-      !isDefined(stratum) ||
-      !isDefined(this.style)
-    ) {
-      return;
-    }
-
-    const layer = stratum.capabilitiesLayer;
-    const layerIdentifier = layer?.Identifier;
-    if (!isDefined(layer) || !isDefined(layerIdentifier)) {
-      return;
-    }
-
-    let format: string = "image/png";
-    const formats = layer.Format;
-    if (
-      formats &&
-      formats?.indexOf("image/png") === -1 &&
-      formats?.indexOf("image/jpeg") !== -1
-    ) {
-      format = "image/jpeg";
-    }
-
-    // if layer has defined ResourceURL we should use it because some layers support only Restful encoding. See #2927
-    const resourceUrl: ResourceUrl | ResourceUrl[] | undefined =
-      layer.ResourceURL;
-    let baseUrl: string = new URI(this.url).search("").toString();
-    if (resourceUrl) {
-      if (Array.isArray(resourceUrl)) {
-        for (let i = 0; i < resourceUrl.length; i++) {
-          const url: ResourceUrl = resourceUrl[i];
+      let format: string = "image/png";
+      const formats = layer.Format;
+      if (
+        formats &&
+        formats?.indexOf("image/png") === -1 &&
+        formats?.indexOf("image/jpeg") !== -1
+      ) {
+        format = "image/jpeg";
+      }
+  
+      // if layer has defined ResourceURL we should use it because some layers support only Restful encoding. See #2927
+      const resourceUrl: ResourceUrl | ResourceUrl[] | undefined =
+        layer.ResourceURL;
+      let baseUrl: string = new URI(this.url).search("").toString();
+      if (resourceUrl) {
+        if (Array.isArray(resourceUrl)) {
+          for (let i = 0; i < resourceUrl.length; i++) {
+            const url: ResourceUrl = resourceUrl[i];
+            if (
+              url.format.indexOf(format) !== -1 ||
+              url.format.indexOf("png") !== -1
+            ) {
+              baseUrl = url.template;
+            }
+          }
+        } else {
           if (
-            url.format.indexOf(format) !== -1 ||
-            url.format.indexOf("png") !== -1
+            format === resourceUrl.format ||
+            resourceUrl.format.indexOf("png") !== -1
           ) {
-            baseUrl = url.template;
+            baseUrl = resourceUrl.template;
           }
         }
-      } else {
-        if (
-          format === resourceUrl.format ||
-          resourceUrl.format.indexOf("png") !== -1
-        ) {
-          baseUrl = resourceUrl.template;
-        }
       }
+  
+      const tileMatrixSet = this.tileMatrixSet;
+      debugger;
+      if (!isDefined(tileMatrixSet)) {
+        return;
+      }
+  
+      // Add dimension parameters with time
+      const dimensionParameters = formatDimensionsForOws(this.dimensions);
+      if (time !== undefined) {
+        dimensionParameters.time = time;
+      }
+      
+      // Create the imagery provider with time-aware options
+      const imageryOptions: WebMapTileServiceImageryProvider.ConstructorOptions = {
+        url: proxyCatalogItemUrl(this, baseUrl),
+        layer: layerIdentifier,
+        style: this.style,
+        tileMatrixSetID: tileMatrixSet.id,
+        tileMatrixLabels: tileMatrixSet.labels,
+        minimumLevel: this.minimumLevel ?? tileMatrixSet.minLevel,
+        maximumLevel: this.maximumLevel ?? tileMatrixSet.maxLevel,
+        tileWidth: this.tileWidth ?? tileMatrixSet.tileWidth,
+        tileHeight: this.tileHeight ?? this.minimumLevel ?? tileMatrixSet.tileHeight,
+        tilingScheme: new WebMercatorTilingScheme(),
+        format,
+        credit: this.attribution,
+        enablePickFeatures: this.enablePickFeatures,
+        dimensions: dimensionParameters // Add time dimension here
+      };
+      
+      return new WebMapTileServiceImageryProvider(imageryOptions);
     }
+  );
 
-    const tileMatrixSet = this.tileMatrixSet;
-    if (!isDefined(tileMatrixSet)) {
+  @computed
+  get canDiffImages(): boolean {
+    // const hasValidDiffStyles = this.availableDiffStyles.some((diffStyle) =>
+    //   this.styleSelectableDimensions?.[0]?.options?.find(
+    //     (style) => style.id === diffStyle
+    //   )
+    // );
+    return  true;
+  }
+
+  showDiffImage(
+    firstDate: JulianDate,
+    secondDate: JulianDate,
+    diffStyleId: string
+  ) {
+    if (this.canDiffImages === false) {
       return;
     }
 
-    const imageryOptions: WebMapTileServiceImageryProvider.ConstructorOptions = {
-      url: proxyCatalogItemUrl(this, baseUrl),
-      layer: layerIdentifier,
-      style: this.style,
-      tileMatrixSetID: tileMatrixSet.id,
-      tileMatrixLabels: tileMatrixSet.labels,
-      minimumLevel: this.minimumLevel ?? tileMatrixSet.minLevel,
-      maximumLevel: this.maximumLevel ?? tileMatrixSet.maxLevel,
-      tileWidth: this.tileWidth ?? tileMatrixSet.tileWidth,
-      tileHeight:
-        this.tileHeight ?? this.minimumLevel ?? tileMatrixSet.tileHeight,
-      tilingScheme: new WebMercatorTilingScheme(),
-      format,
-      credit: this.attribution,
-      enablePickFeatures: this.enablePickFeatures
-    }
-        
-    const imageryProvider = new WebMapTileServiceImageryProvider(imageryOptions) ;
-    return imageryProvider;
+    // A helper to get the diff tag given a date string
+    const firstDateStr = this.getTagForTime(firstDate);
+    const secondDateStr = this.getTagForTime(secondDate);
+    this.setTrait(CommonStrata.user, "firstDiffDate", firstDateStr);
+    this.setTrait(CommonStrata.user, "secondDiffDate", secondDateStr);
+    this.setTrait(CommonStrata.user, "diffStyleId", diffStyleId);
+    this.setTrait(CommonStrata.user, "isShowingDiff", true);
+  }
+
+  clearDiffImage() {
+    this.setTrait(CommonStrata.user, "firstDiffDate", undefined);
+    this.setTrait(CommonStrata.user, "secondDiffDate", undefined);
+    this.setTrait(CommonStrata.user, "diffStyleId", undefined);
+    this.setTrait(CommonStrata.user, "isShowingDiff", false);
   }
 
   @computed
@@ -636,22 +835,22 @@ class WebMapTileServiceCatalogItem extends MappableMixin(
     return Promise.resolve();
   }
 
-  @computed
-  get mapItems(): MapItem[] {
-    if (isDefined(this.imageryProvider)) {
-      return [
-        {
-          alpha: this.opacity,
-          show: this.show,
-          imageryProvider: this.imageryProvider,
-          clippingRectangle: this.clipToRectangle
-            ? this.cesiumRectangle
-            : undefined
-        }
-      ];
-    }
-    return [];
-  }
+  // @computed
+  // get mapItems(): MapItem[] {
+  //   if (isDefined(this.imageryProvider)) {
+  //     return [
+  //       {
+  //         alpha: this.opacity,
+  //         show: this.show,
+  //         imageryProvider: this.imageryProvider,
+  //         clippingRectangle: this.clipToRectangle
+  //           ? this.cesiumRectangle
+  //           : undefined
+  //       }
+  //     ];
+  //   }
+  //   return [];
+  // }
 
   protected get defaultGetCapabilitiesUrl(): string | undefined {
     if (this.uri) {
@@ -666,6 +865,149 @@ class WebMapTileServiceCatalogItem extends MappableMixin(
     } else {
       return undefined;
     }
+  }
+
+  /**
+   * Get discrete times from capabilities
+   */
+  @computed
+  get discreteTimes() {
+    // Get discrete times from capabilities stratum
+    const getCapabilitiesStratum = this.strata.get(
+      GetCapabilitiesMixin.getCapabilitiesStratumName
+    ) as GetCapabilitiesStratum;
+    
+    return getCapabilitiesStratum?.discreteTimes;
+  }
+
+
+  /**
+   * Get the time tag for a specific JulianDate
+   */
+  getTagForTime(date: JulianDate): string | undefined {
+    const index = this.getDiscreteTimeIndex(date);
+    return index !== undefined && this.discreteTimesAsSortedJulianDates
+      ? this.discreteTimesAsSortedJulianDates[index].tag
+      : undefined;
+  }
+
+
+  @computed
+  get mapItems() {
+    // Don't return anything if there are invalid layers
+    // See forceLoadMapItems for error message
+
+    if (this.isShowingDiff === true) {
+      return this._diffImageryParts ? [this._diffImageryParts] : [];
+    }
+
+    const result = [];
+
+    const current = this._currentImageryParts;
+    if (current) {
+      result.push(current);
+    }
+
+    const next = this._nextImageryParts;
+    if (next) {
+      result.push(next);
+    }
+
+    return result;
+  }
+
+  @computed
+  private get _diffImageryParts(): ImageryParts | undefined {
+    const diffStyleId = this.diffStyleId;
+    if (
+      this.firstDiffDate === undefined ||
+      this.secondDiffDate === undefined ||
+      diffStyleId === undefined
+    ) {
+      return;
+    }
+    const time = `${this.firstDiffDate},${this.secondDiffDate}`;
+    const imageryProvider = this._createImageryProvider(time);
+    if (imageryProvider) {
+      return {
+        imageryProvider,
+        alpha: this.opacity,
+        show: this.show,
+        clippingRectangle: this.clipToRectangle
+          ? this.cesiumRectangle
+          : undefined
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Current imagery parts with time parameter
+   */
+  @computed
+  private get _currentImageryParts(): ImageryParts | undefined {
+    const imageryProvider = this._createImageryProvider(
+      this.currentDiscreteTimeTag
+    );
+    if (imageryProvider === undefined) {
+      return undefined;
+    }
+
+    // Enable feature picking
+    imageryProvider.enablePickFeatures = this.allowFeaturePicking;
+
+    return {
+      imageryProvider,
+      alpha: this.opacity,
+      show: this.show,
+      clippingRectangle: this.clipToRectangle ? this.cesiumRectangle : undefined
+    };
+  }
+
+  /**
+   * Next imagery parts for animation
+   */
+  @computed
+  private get _nextImageryParts(): ImageryParts | undefined {
+    if (
+      this.terria.timelineStack.contains(this) &&
+      !this.isPaused &&
+      this.nextDiscreteTimeTag
+    ) {
+      const imageryProvider = this._createImageryProvider(
+        this.nextDiscreteTimeTag
+      );
+      if (imageryProvider === undefined) {
+        return undefined;
+      }
+
+      // Disable feature picking for next imagery
+      imageryProvider.enablePickFeatures = false;
+
+      return {
+        imageryProvider,
+        alpha: 0.0,
+        show: true,
+        clippingRectangle: this.clipToRectangle
+          ? this.cesiumRectangle
+          : undefined
+      };
+    } else {
+      return undefined;
+    }
+  }
+
+  @computed
+  get styleSelectableDimensions() {
+    return [];
+  }
+
+  getLegendUrlForStyle(
+    diffStyleId: string,
+    firstDate?: JulianDate,
+    secondDate?: JulianDate
+  ): string {
+    return "";
   }
 }
 
@@ -697,4 +1039,27 @@ export function getServiceContactInformation(contactInfo: ServiceProvider) {
   return text;
 }
 
+  /**
+   * Format dimensions for WMTS requests, treating time specially
+   */
+  export function formatDimensionsForOws(
+    dimensions: { [key: string]: string } | undefined
+  ): { [key: string]: string } {
+    if (!isDefined(dimensions)) {
+      return {};
+    }
+    
+    return Object.entries(dimensions).reduce<{ [key: string]: string }>(
+      (formattedDimensions, [key, value]) => {
+        // Handle special dimensions (time, styles, elevation)
+        formattedDimensions[
+          ["time", "styles", "elevation"].includes(key?.toLowerCase())
+            ? key
+            : `dim_${key}`
+        ] = value;
+        return formattedDimensions;
+      },
+      {}
+    );
+  }
 export default WebMapTileServiceCatalogItem;
