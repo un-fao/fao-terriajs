@@ -39,6 +39,11 @@ import JulianDate from "terriajs-cesium/Source/Core/JulianDate";
 import createTransformerAllowUndefined from "../../../Core/createTransformerAllowUndefined";
 import MinMaxLevelMixin from "../../../ModelMixins/MinMaxLevelMixin";
 import DiffableMixin from "../../../ModelMixins/DiffableMixin";
+import { WebMapTileServiceAvailableLayerDimensionsTraits } from "../../../Traits/TraitsClasses/WebMapTileServiceCatalogItemTraits";
+import { SelectableDimension, SelectableDimensionEnum } from "../../SelectableDimensions/SelectableDimensions";
+import filterOutUndefined from "../../../Core/filterOutUndefined";
+import combine from "terriajs-cesium/Source/Core/combine";
+
 interface UsableTileMatrixSets {
   identifiers: string[];
   tileWidth: number;
@@ -435,7 +440,7 @@ class GetCapabilitiesStratum extends LoadableStratum(
         ? dimensions.find(
             (dimension) => dimension.Identifier.toLowerCase() === "time"
           )
-        : dimensions && typeof dimensions === "object" && "Identifier" in dimensions && 
+        : dimensions && typeof dimensions === "object" && "Identifier" in dimensions &&  //This needs to fixed. This is not standard compliant.
           dimensions.Identifier.toLowerCase() === "time" ? dimensions : undefined;
 
       if (timeDimension && timeDimension.Value) {
@@ -567,6 +572,61 @@ class GetCapabilitiesStratum extends LoadableStratum(
   get initialTimeSource() {
     return "now";
   }
+
+  @computed
+  get availableDimensions(): StratumFromTraits<WebMapTileServiceAvailableLayerDimensionsTraits>[] {
+    const result: StratumFromTraits<WebMapTileServiceAvailableLayerDimensionsTraits>[] = [];
+  
+    if (!this.capabilities) {
+      return result;
+    }
+  
+    const layer = this.capabilitiesLayer;
+    if (!layer) {
+      return result;
+    }
+  
+    // Get dimensions from layer
+    const dimensions = layer.Dimension || [];
+    const dimensionsArray = Array.isArray(dimensions) ? dimensions : [dimensions];
+  
+    result.push({
+      layerName: layer.Identifier,
+      dimensions: dimensionsArray
+        // Filter out time dimension as it's handled separately
+        .filter((dim) => 
+          dim && 
+          typeof dim === "object" && 
+          "Identifier" in dim && 
+          dim.Identifier.toLowerCase() !== "time"
+        )
+        .map((dim) => {
+          // Extract values from dimension
+          let values: string[] = [];
+          if (dim.Value) {
+            if (Array.isArray(dim.Value)) {
+              values = dim.Value.map((v: any) => v.toString());
+            } else if (typeof dim.Value === "string") {
+              values = dim.Value.split(",").map((v: string) => v.trim());
+            }
+          }
+  
+          return {
+            name: dim.Identifier,
+            units: dim.UOM || dim.units,
+            unitSymbol: dim.unitSymbol,
+            default: dim.Default,
+            multipleValues: dim.multipleValues === "1" || dim.multipleValues === true,
+            current: dim.current === "1" || dim.current === true,
+            nearestValue: dim.nearestValue === "1" || dim.nearestValue === true,
+            values: values
+          };
+        })
+    });
+  
+    return result;
+  }
+
 }
 
 class WebMapTileServiceCatalogItem extends
@@ -635,6 +695,8 @@ class WebMapTileServiceCatalogItem extends
     return "1d";
   }
 
+// Add formatDimensionsForOwsTs function - already exists in WMTS class
+// Make sure it's exported properl
   private _createImageryProvider = createTransformerAllowUndefined(
     (time?: string): WebMapTileServiceImageryProvider | undefined => {
       // Basic error checking similar to current implementation
@@ -722,7 +784,7 @@ class WebMapTileServiceCatalogItem extends
   );
 
   @computed
-  get canDiffImages(): boolean {
+  get canDiffImages(): boolean { // This needs to be fixed. This is not standard compliant.
     // const hasValidDiffStyles = this.availableDiffStyles.some((diffStyle) =>
     //   this.styleSelectableDimensions?.[0]?.options?.find(
     //     (style) => style.id === diffStyle
@@ -835,22 +897,6 @@ class WebMapTileServiceCatalogItem extends
     return Promise.resolve();
   }
 
-  // @computed
-  // get mapItems(): MapItem[] {
-  //   if (isDefined(this.imageryProvider)) {
-  //     return [
-  //       {
-  //         alpha: this.opacity,
-  //         show: this.show,
-  //         imageryProvider: this.imageryProvider,
-  //         clippingRectangle: this.clipToRectangle
-  //           ? this.cesiumRectangle
-  //           : undefined
-  //       }
-  //     ];
-  //   }
-  //   return [];
-  // }
 
   protected get defaultGetCapabilitiesUrl(): string | undefined {
     if (this.uri) {
@@ -915,6 +961,76 @@ class WebMapTileServiceCatalogItem extends
 
     return result;
   }
+
+  @override
+  get selectableDimensions() {
+    return filterOutUndefined([
+      ...super.selectableDimensions, // This includes time dimension
+      ...this.wmtsDimensionSelectableDimensions,
+      ...this.styleSelectableDimensions
+    ]);
+  }
+  
+  /**
+   * Gets selectable dimensions for any non-time dimensions
+   */
+  @computed
+  get wmtsDimensionSelectableDimensions(): SelectableDimensionEnum[] {
+    if (this.isLoadingMetadata) {
+      return [];
+    }
+  
+    const dimensions: SelectableDimensionEnum[] = [];
+    
+    // Get available dimensions for the current layer
+    const layerDimensions = this.availableDimensions.find(
+      dims => dims.layerName === this.layer
+    )?.dimensions;
+    
+    if (!layerDimensions) return dimensions;
+    
+    // Convert each dimension to a selectable option
+    layerDimensions.forEach(dimension => {
+      if (!dimension.name || !dimension.values || dimension.values.length === 0) 
+        return;
+        
+      // Skip time dimension as it's handled separately
+      if (dimension.name.toLowerCase() === "time") return;
+      
+      dimensions.push({
+        id: dimension.name,
+        name: dimension.name,
+        options: dimension.values.map(value => ({
+          id: value,
+          name: dimension.units 
+            ? `${value} ${dimension.units}`
+            : value
+        })),
+        selectedId: 
+          this.dimensions?.[dimension.name] || 
+          dimension.default || 
+          dimension.values[0],
+          setDimensionValue: (
+            stratumId: string,
+            newDimension: string | undefined
+          ) => {
+            let newDimensions: any = {};
+
+            newDimensions[dimension.name!] = newDimension;
+
+            if (isDefined(this.dimensions)) {
+              newDimensions = combine(newDimensions, this.dimensions);
+            }
+            runInAction(() => {
+              this.setTrait(stratumId, "dimensions", newDimensions);
+            });
+          }
+      });
+    });
+    
+    return dimensions;
+  }
+  
 
   @computed
   private get _diffImageryParts(): ImageryParts | undefined {

@@ -17,6 +17,83 @@ import UrlTraits from "./UrlTraits";
 import primitiveArrayTrait from "../Decorators/primitiveArrayTrait";
 import DiffableTraits from "./DiffableTraits";
 
+
+// Create new traits class
+export class WebMapTileServiceAvailableDimensionTraits extends ModelTraits {
+  @primitiveTrait({
+    type: "string",
+    name: "Name",
+    description: "The name of the dimension."
+  })
+  name?: string;
+
+  @primitiveTrait({
+    type: "string",
+    name: "Units",
+    description: "The units of the dimension."
+  })
+  units?: string;
+
+  @primitiveTrait({
+    type: "string",
+    name: "Unit Symbol",
+    description: "The unit symbol of the dimension."
+  })
+  unitSymbol?: string;
+
+  @primitiveTrait({
+    type: "string",
+    name: "Default",
+    description: "The default value for the dimension."
+  })
+  default?: string;
+
+  @primitiveTrait({
+    type: "boolean",
+    name: "Multiple Values",
+    description: "Whether multiple values are allowed for this dimension."
+  })
+  multipleValues?: boolean;
+
+  @primitiveTrait({
+    type: "boolean",
+    name: "Current",
+    description: "Whether the 'current' keyword is supported for this dimension."
+  })
+  current?: boolean;
+
+  @primitiveTrait({
+    type: "boolean",
+    name: "Nearest Value",
+    description: "Whether nearest value interpolation is supported."
+  })
+  nearestValue?: boolean;
+
+  @primitiveArrayTrait({
+    type: "string",
+    name: "Dimension values",
+    description: "Possible dimension values."
+  })
+  values?: string[];
+}
+
+export class WebMapTileServiceAvailableLayerDimensionsTraits extends ModelTraits {
+  @primitiveTrait({
+    type: "string",
+    name: "Layer Name",
+    description: "The name of the layer for which dimensions are available."
+  })
+  layerName?: string;
+
+  @objectArrayTrait({
+    type: WebMapTileServiceAvailableDimensionTraits,
+    name: "Dimensions",
+    description: "The dimensions available for this layer.",
+    idProperty: "name"
+  })
+  dimensions?: WebMapTileServiceAvailableDimensionTraits[];
+}
+
 export class WebMapTileServiceAvailableStyleTraits extends ModelTraits {
   @primitiveTrait({
     type: "string",
@@ -151,4 +228,12 @@ export default class WebMapTileServiceCatalogItemTraits extends mixTraits(
       "Dimension parameters used to request a particular layer along one or more dimensional axes (including elevation, excluding time). Do not include `_dim` prefx for parameter keys. These dimensions will be applied to the layer."
   })
   dimensions?: { [key: string]: string };
+
+  @objectArrayTrait({
+    type: WebMapTileServiceAvailableLayerDimensionsTraits,
+    name: "Available Dimensions",
+    description: "The available dimensions.",
+    idProperty: "layerName"
+  })
+  availableDimensions?: WebMapTileServiceAvailableLayerDimensionsTraits[];
 }
