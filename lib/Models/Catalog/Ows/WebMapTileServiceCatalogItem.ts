@@ -750,7 +750,7 @@ class WebMapTileServiceCatalogItem extends
       }
   
       const tileMatrixSet = this.tileMatrixSet;
-      debugger;
+
       if (!isDefined(tileMatrixSet)) {
         return;
       }
@@ -1114,15 +1114,60 @@ class WebMapTileServiceCatalogItem extends
   }
 
   @computed
-  get styleSelectableDimensions() {
-    return [];
+  get styleSelectableDimensions(): SelectableDimensionEnum[] {
+    if (this.isLoadingMetadata) {
+      return [];
+    }
+
+    // Find available styles for the current layer using the correct property
+    const layerAvailableStyles = this.availableStyles.find(
+      (candidate) => candidate.layerName === this.layer
+    )?.styles;
+
+    if (!layerAvailableStyles || layerAvailableStyles.length <= 1) {
+      // No styles or only one style available, so no need for selection
+      return [];
+    }
+
+    // Create a selectable dimension for styles
+    return [{
+      id: `${this.uniqueId}-${this.layer}-styles`,
+      name: "Styles",
+      options: layerAvailableStyles.map(style => ({
+        id: style.identifier,
+        name: style.abstract || style.identifier
+      })),
+      selectedId: this.style,
+      setDimensionValue: (stratumId: string, newStyle: string | undefined) => {
+        runInAction(() => {
+          this.setTrait(stratumId, "style", newStyle);
+        });
+      }
+    }];
   }
 
   getLegendUrlForStyle(
-    diffStyleId: string,
+    styleId: string,
     firstDate?: JulianDate,
     secondDate?: JulianDate
   ): string {
+    // For WMTS, we need to get the legend URL directly from the capabilities
+    const layerAvailableStyles = this.availableStyles.find(
+      (candidate) => candidate.layerName === this.layer
+    )?.styles;
+    
+    if (!layerAvailableStyles) {
+      return "";
+    }
+    
+    // Find the matching style
+    const style = layerAvailableStyles.find(style => style.identifier === styleId);
+    
+    // Return the legend URL if available
+    if (style?.legend?.url) {
+      return style.legend.url;
+    }
+    
     return "";
   }
 }
