@@ -754,13 +754,14 @@ class WebMapTileServiceCatalogItem extends
       if (!isDefined(tileMatrixSet)) {
         return;
       }
-  
       // Add dimension parameters with time
-      const dimensionParameters = formatDimensionsForOws(this.dimensions);
+      const dimensionParameters = formatDimensionsForOws({...this.defaultDimensions, ...this.dimensions});
       if (time !== undefined) {
         dimensionParameters.time = time;
+        dimensionParameters.dim_time = time; //remove it later
       }
       
+      baseUrl = baseUrl.replace(/{(\w+)}/g, (match, key) => dimensionParameters[key] ? encodeURIComponent(dimensionParameters[key]) : match);
       // Create the imagery provider with time-aware options
       const imageryOptions: WebMapTileServiceImageryProvider.ConstructorOptions = {
         url: proxyCatalogItemUrl(this, baseUrl),
@@ -970,7 +971,29 @@ class WebMapTileServiceCatalogItem extends
       ...this.styleSelectableDimensions
     ]);
   }
-  
+
+  @computed
+  get defaultDimensions() {
+    const defaults: { [key: string]: string } = {};
+
+    // Find the dimensions for the currently active layer
+    const layerDimensions = this.availableDimensions.find(
+      d => d.layerName === this.layer
+    )?.dimensions;
+
+    if (!layerDimensions) {
+      return defaults;
+    }
+
+    // Loop through each dimension and pull out its default value
+    for (const dim of layerDimensions) {
+      if (dim.name && dim.default) {
+        defaults[dim.name] = dim.default;
+      }
+    }
+
+    return defaults;
+  }
   /**
    * Gets selectable dimensions for any non-time dimensions
    */
@@ -1216,7 +1239,7 @@ export function getServiceContactInformation(contactInfo: ServiceProvider) {
         formattedDimensions[
           ["time", "styles", "elevation"].includes(key?.toLowerCase())
             ? key
-            : `dim_${key}`
+            : `dim_${key?.toLowerCase()}`
         ] = value;
         return formattedDimensions;
       },
