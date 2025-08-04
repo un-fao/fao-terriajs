@@ -759,6 +759,7 @@ class WebMapTileServiceCatalogItem extends
       if (time !== undefined) {
         dimensionParameters.time = time;
         dimensionParameters.dim_time = time; //remove it later
+        dimensionParameters.Time = time; //remove it later
       }
       
       baseUrl = baseUrl.replace(/{(\w+)}/g, (match, key) => dimensionParameters[key] ? encodeURIComponent(dimensionParameters[key]) : match);
