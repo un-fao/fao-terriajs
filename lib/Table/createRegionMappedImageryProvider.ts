@@ -148,7 +148,7 @@ const getImageryLayerFilteredRow = action(
     if (!isDefined(rowNumbers)) return;
 
     if (!isDefined(currentTimeRows)) {
-      return typeof rowNumbers === "number" ? rowNumbers : Array.isArray(rowNumbers) ? rowNumbers[0] : undefined;
+      return isReadOnlyArray(rowNumbers) ? rowNumbers[0] : rowNumbers;
     }
 
     if (
