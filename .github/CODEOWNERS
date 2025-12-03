@@ -1,0 +1,7 @@
+
+# Code owners for all files
+* @ShubhamSharmaFAO
+
+# Code owners for the .github folder
+/.github/ @agroinfomatics-devops
+
