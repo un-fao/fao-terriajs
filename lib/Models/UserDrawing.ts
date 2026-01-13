@@ -48,6 +48,8 @@ interface Options {
   onDrawingComplete?: (params: OnDrawingCompleteParams) => void;
   onCleanUp?: () => void;
   invisible?: boolean;
+  /** Pass-through to MapInteractionMode.customUi */
+  customUi?: () => any;
 }
 
 export default class UserDrawing extends MappableMixin(
@@ -64,6 +66,7 @@ export default class UserDrawing extends MappableMixin(
   ) => void;
   private readonly onCleanUp?: () => void;
   private readonly invisible?: boolean;
+  private readonly customUi?: () => any;
 
   // helper for dragging points around
   private dragHelper?: DragPoints;
@@ -126,6 +129,9 @@ export default class UserDrawing extends MappableMixin(
      * Callback that occurs on clean up, i.e. when drawing is done or cancelled.
      */
     this.onCleanUp = options.onCleanUp;
+
+
+    this.customUi = options.customUi;
 
     /**
      * Storage for points that will be drawn
@@ -361,14 +367,13 @@ export default class UserDrawing extends MappableMixin(
     const pickPointMode = new MapInteractionMode({
       message: this.getDialogMessage(),
       buttonText: this.getButtonText(),
+      customUi: this.customUi,
       onCancel: () => {
         runInAction(() => {
           if (this.onDrawingComplete) {
-            const isDrawingComplete =
-              this.pointEntities.entities.values.length >= 2;
             const points = this.getPointsForShape();
 
-            if (isDrawingComplete && points) {
+            if (points && points.length >= 1) {
               this.onDrawingComplete({
                 points: filterOutUndefined(points),
                 rectangle: this.getRectangleForShape()
