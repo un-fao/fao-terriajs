@@ -57,6 +57,21 @@
     "measureToolTitle": "Line Measure",
     "measureDistance": "Measure distance between locations"
   },
+  "annotation": {
+    "drawingTool": "Annotation Tool",
+    "drawingToolTitle": "Draw and annotate areas on the map",
+    "nameLabel": "Name",
+    "addToExistingLabel": "Add to existing area",
+    "addToExistingTooltip": "Adds this drawing as a feature inside the selected area.",
+    "existingAreaLabel": "Existing area",
+    "selectExistingPlaceholder": "Select an existing area",
+    "noExistingAreas": "No saved areas yet",
+    "unnamedArea": "Area",
+    "existingAreaHelp": "Adds this drawing as a feature in the selected area.",
+    "createAreaFirst": "Create an area first to add new features to it.",
+    "errorTitle": "Failed to add annotation",
+    "errorMessage": "Terria could not add this annotation"
+  },
   "location": {
     "errorGettingLocation": "Error getting location",
     "browserCannotProvide": "Your browser cannot provide your location.",

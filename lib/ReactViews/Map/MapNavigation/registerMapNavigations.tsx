@@ -20,6 +20,7 @@ import {
   AugmentedVirtualityRealignController,
   Compass,
   COMPASS_TOOL_ID,
+  AnnotationTool,
   MeasureTool,
   MyLocation,
   ToggleSplitterController,
@@ -103,6 +104,24 @@ export const registerMapNavigations = (viewState: ViewState) => {
     controller: measureTool,
     screenSize: undefined,
     order: 6
+  });
+
+  const annotationTool = new AnnotationTool({
+    terria,
+    onClose: () => {
+      runInAction(() => {
+        viewState.panel = undefined;
+      });
+    }
+  });
+  mapNavigationModel.addItem({
+    id: AnnotationTool.id,
+    name: "translate#annotation.drawingTool",
+    title: "translate#annotation.drawingToolTitle",
+    location: "TOP",
+    controller: annotationTool,
+    screenSize: undefined,
+    order: 7
   });
 
   const pedestrianModeToolController = new ToolButtonController({

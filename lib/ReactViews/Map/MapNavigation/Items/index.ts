@@ -5,6 +5,7 @@ export {
   AugmentedVirtualityRealign,
   AugmentedVirtualityRealignController
 } from "./AugmentedVirtualityTool";
+export { AnnotationTool } from "./AnnotationTool";
 export * from "./Compass";
 export { Control, MapNavigationItem } from "./MapNavigationItem";
 export { MeasureTool } from "./MeasureTool";
